@@ -9,6 +9,7 @@ import ArchitectureSection from '@/components/ArchitectureSection'
 export default function Home() {
   const [niche, setNiche] = useState('ecommerce')
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
 
   const { messages, input, handleInputChange, handleSubmit, isLoading, setMessages, setInput } = useChat({
     api: '/api/chat',
@@ -16,7 +17,10 @@ export default function Home() {
   })
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const container = messagesContainerRef.current
+    if (container) {
+      container.scrollTop = container.scrollHeight
+    }
   }, [messages])
 
   const handleNicheChange = (newNiche: string) => {
@@ -98,7 +102,7 @@ export default function Home() {
           style={{ minHeight: '420px' }}>
 
           {/* Messages area */}
-          <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+          <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
             {messages.length === 0 && (
               <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
                 <div className="w-14 h-14 rounded-2xl bg-[#0b0f1a] border border-[#1a2438] flex items-center justify-center text-2xl mb-4">
@@ -184,7 +188,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Architecture section — scrollable below the chat */}
+      {/* Architecture section */}
       <ArchitectureSection />
 
     </main>
