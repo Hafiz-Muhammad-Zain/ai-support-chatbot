@@ -14,7 +14,12 @@ export async function POST(req: Request) {
 
   const pinecone = getPinecone()
   const index = pinecone.index(PINECONE_INDEX)
-  const vectors = []
+
+  const vectors: Array<{
+    id: string
+    values: number[]
+    metadata: { niche: string; category: string; content: string }
+  }> = []
 
   for (const entry of knowledgeBase) {
     const embedding = await embedText(entry.content)
@@ -30,9 +35,11 @@ export async function POST(req: Request) {
     await index.namespace(PINECONE_NAMESPACE).upsert(vectors.slice(i, i + batchSize))
   }
 
+  const uniqueNiches = Array.from(new Set(knowledgeBase.map(e => e.niche)))
+
   return NextResponse.json({
     success: true,
     message: `Ingested ${vectors.length} knowledge base entries into Pinecone`,
-    niches: [...new Set(knowledgeBase.map(e => e.niche))],
+    niches: uniqueNiches,
   })
 }
