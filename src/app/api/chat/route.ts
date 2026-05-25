@@ -1,4 +1,3 @@
-import { OpenAIStream, StreamingTextResponse } from 'ai'
 import { getOpenAI, embedText } from '@/lib/openai'
 import { getPinecone, PINECONE_INDEX, PINECONE_NAMESPACE } from '@/lib/pinecone'
 
@@ -58,6 +57,24 @@ ${context || 'No relevant information found for this query.'}`
     ],
   })
 
-  const stream = OpenAIStream(response)
-  return new StreamingTextResponse(stream)
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream({
+    async start(controller) {
+      for await (const chunk of response) {
+        const text = chunk.choices[0]?.delta?.content ?? ''
+        if (text) {
+          controller.enqueue(encoder.encode(`0:${JSON.stringify(text)}\n`))
+        }
+      }
+      controller.enqueue(encoder.encode('0:\n'))
+      controller.close()
+    },
+  })
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'X-Vercel-AI-Data-Stream': 'v1',
+    },
+  })
 }
