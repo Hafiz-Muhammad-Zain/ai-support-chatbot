@@ -3,6 +3,34 @@ import { getPinecone, PINECONE_INDEX, PINECONE_NAMESPACE } from '@/lib/pinecone'
 
 export const runtime = 'nodejs'
 
+const NICHE_IDENTITY: Record<string, { company: string; type: string; contact: string }> = {
+  ecommerce: {
+    company: 'NovaNest',
+    type: 'e-commerce store',
+    contact: 'support@novanest.shop or call 1-800-668-2678',
+  },
+  real_estate: {
+    company: 'Meridian Property Group',
+    type: 'real estate agency',
+    contact: 'hello@meridianproperty.co.uk or call 020 7890 1234',
+  },
+  hr: {
+    company: 'Pinnacle Technologies HR',
+    type: 'HR department',
+    contact: 'hr@pinnacle.tech (ext. 4400) or your HR Business Partner',
+  },
+  healthcare: {
+    company: 'Greenfield Medical Practice',
+    type: 'medical practice',
+    contact: 'call 01234 567890 or visit greenfieldmedical.nhs.uk',
+  },
+  legal: {
+    company: 'Sterling & Hart Solicitors',
+    type: 'law firm',
+    contact: 'hello@sterlinghart.co.uk or call 020 3456 7890',
+  },
+}
+
 export async function POST(req: Request) {
   const { messages, niche } = await req.json()
 
@@ -11,6 +39,7 @@ export async function POST(req: Request) {
     return new Response('No user message', { status: 400 })
   }
 
+  // Embed only the latest user question for vector search
   const queryEmbedding = await embedText(lastUserMessage.content)
 
   const pinecone = getPinecone()
@@ -19,41 +48,52 @@ export async function POST(req: Request) {
 
   const searchResults = await index.namespace(PINECONE_NAMESPACE).query({
     vector: queryEmbedding,
-    topK: 4,
+    topK: 5,
     includeMetadata: true,
     filter: queryFilter,
   })
+
+  const topScore = searchResults.matches[0]?.score ?? 0
+  const lowConfidence = topScore < 0.55
 
   const context = searchResults.matches
     .filter(m => (m.score ?? 0) > 0.3)
     .map(m => m.metadata?.content as string)
     .join('\n\n---\n\n')
 
-  const nicheLabels: Record<string, string> = {
-    ecommerce: 'an e-commerce store',
-    real_estate: 'a real estate agency',
-    hr: 'a company HR department',
-    healthcare: 'a medical clinic',
-    legal: 'a law firm',
-    all: 'a business',
+  const identity = NICHE_IDENTITY[niche] ?? {
+    company: 'our company',
+    type: 'business',
+    contact: 'our support team',
   }
 
-  const systemPrompt = `You are a helpful AI support assistant for ${nicheLabels[niche] ?? 'a business'}.
-Answer the customer's question using ONLY the information provided in the context below.
-If the answer is not in the context, say "I don't have that information right now - please contact our support team directly."
-Be concise, friendly, and professional. Do not make up information.
+  const escalationInstruction = lowConfidence
+    ? `\nIMPORTANT: The knowledge base does not contain a confident answer to this question. After giving your best answer from the available context, always offer to connect the customer with a human: "For the most accurate answer, I'd recommend contacting ${identity.contact} directly."`
+    : ''
+
+  const systemPrompt = `You are a helpful AI support assistant for ${identity.company}, ${identity.type}.
+Your role is to answer customer questions accurately using ONLY the information in the context below.
+If the context does not contain the answer, say: "I don't have that information right now — please contact ${identity.contact}."
+Be concise, friendly, and professional. Never make up information. Use bullet points for multi-step answers.${escalationInstruction}
 
 CONTEXT:
-${context || 'No relevant information found for this query.'}`
+${context || 'No relevant information found.'}`
 
   const openai = getOpenAI()
+
+  // Pass full conversation history for memory (capped at last 10 messages)
+  const recentMessages = messages.slice(-10)
+
   const response = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
     stream: true,
     temperature: 0.3,
     messages: [
       { role: 'system', content: systemPrompt },
-      ...messages.map((m: { role: string; content: string }) => ({ role: m.role, content: m.content })),
+      ...recentMessages.map((m: { role: string; content: string }) => ({
+        role: m.role,
+        content: m.content,
+      })),
     ],
   })
 
